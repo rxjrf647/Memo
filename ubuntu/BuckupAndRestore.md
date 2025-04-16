@@ -102,3 +102,109 @@ sudo grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=
 sudo update-grub
 exit
 ```
+
+## レストア時の注意点
+
+- バックアップしたときのファイルシステムと同じパーティションであることが必要
+  - ダンプファイルからファイルシステムを読み取ることはできないのでメモっておく。
+  - 以下のようにスクリプト化して、ファイルシステム情報といっしょに保存させる、など。
+
+### バックアップ スクリプト
+
+```bash
+#!/bin/bash
+BACKUP_DIR="/mnt/backup"
+FS_INFO="$BACKUP_DIR/filesystem_info.txt"
+DUMP_FILE="$BACKUP_DIR/full_backup.dump"
+
+# ファイルシステム情報を取得して保存
+lsblk -f > $FS_INFO
+
+# Dumpでバックアップ
+sudo dump -0 -f $DUMP_FILE /dev/sdX2
+```
+
+### レストア スクリプト
+
+```bash
+#!/bin/bash
+
+# バックアップ時に取得したファイルシステム情報のファイル
+FS_INFO="/mnt/backup/filesystem_info.txt"
+
+# ターゲットディスク（適宜変更）
+TARGET_DISK="/dev/sdX"
+
+# パーティション情報を抽出
+EFI_PART=$(grep "fat32" $FS_INFO | awk '{print $1}')
+ROOT_PART=$(grep "ext4" $FS_INFO | awk '{print $1}') ## これ"ext4"で検索してはメモの意味がない、要検討
+
+# パーティショニング（GPTを設定）
+sudo parted $TARGET_DISK mklabel gpt
+
+# EFIパーティション作成（512MB）
+sudo parted $TARGET_DISK mkpart ESP fat32 1MiB 512MiB
+sudo parted $TARGET_DISK set 1 boot on
+
+# ルートパーティション作成（残りの容量）
+sudo parted $TARGET_DISK mkpart primary ext4 512MiB 100%
+
+# ファイルシステムの作成
+sudo mkfs.fat -F32 ${TARGET_DISK}1
+sudo mkfs.ext4 ${TARGET_DISK}2
+
+# マウント＆リストア
+sudo mount ${TARGET_DISK}2 /mnt
+cd /mnt
+sudo restore -r -f /mnt/backup/full_backup.dump
+
+# EFIブートパーティション設定 （Legacy BIOSの場合は別途メモる）
+sudo mkdir -p /mnt/boot/efi
+sudo mount ${TARGET_DISK}1 /mnt/boot/efi
+
+# GRUBの再インストール
+sudo mount --bind /dev /mnt/dev
+sudo mount --bind /sys /mnt/sys
+sudo mount --bind /proc /mnt/proc
+sudo chroot /mnt
+sudo grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=ubuntu
+sudo update-grub
+exit
+
+echo "restore completed"
+```
+
+### ルートパーティションのファイルシステムのメモ方法
+
+1. `findmnt` を活用
+
+- `findmnt` でマウントされているファイルシステムをシンプルに表示できるので、ルートパーティションを確実に特定可能。
+
+```bash
+findmnt -n -o SOURCE / 
+```
+
+- これにより、現在のルート (`/`) のデバイス名 を取得。例えば `/dev/sdX2` など。
+
+1. `blkid` と組み合わせてファイルシステムを抽出
+
+- ルートパーティションを特定した上で、そのファイルシステムタイプを取得：
+
+```bash
+ROOT_DEV=$(findmnt -n -o SOURCE /)
+FS_TYPE=$(blkid -o value -s TYPE $ROOT_DEV)
+echo "ルートパーティション: $ROOT_DEV, ファイルシステム: $FS_TYPE"
+```
+
+1. スクリプトに組み込んでバックアップ
+
+```bash
+ROOT_DEV=$(findmnt -n -o SOURCE /)
+FS_TYPE=$(blkid -o value -s TYPE $ROOT_DEV)
+
+echo "$ROOT_DEV $FS_TYPE" > /mnt/backup/filesystem_info.txt
+
+sudo dump -0 -f /mnt/backup/full_backup.dump $ROOT_DEV
+```
+
+- これで抽出が楽になる、と思う。
