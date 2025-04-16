@@ -217,13 +217,13 @@ sudo dump -0 -f /mnt/backup/full_backup.dump $ROOT_DEV
 
 ### 対応方法
 
-- `fstab`を新しいuuidに変更する
+- 記録しておいたUUIDを再利用する場合は、新しいUUIDを元のものに書き換える。
 
 ```bash
 sudo tune2fs -U <元のUUID> /dev/sdX2
 ```
 
-- 新しいUUIDを元のものに書き換える。
+- 新しいUUIDを使う場合は、`fstab`を新しいUUIDに変更する
 
 ```bash
 sudo nano /etc/fstab
