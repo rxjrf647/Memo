@@ -174,7 +174,7 @@ exit
 echo "restore completed"
 ```
 
-### ルートパーティションのファイルシステムのメモ方法
+## ルートパーティションのファイルシステムのメモ方法
 
 1. `findmnt` を活用
 
@@ -208,3 +208,29 @@ sudo dump -0 -f /mnt/backup/full_backup.dump $ROOT_DEV
 ```
 
 - これで抽出が楽になる、と思う。
+
+## UUIDの注意事項
+
+- `/etc/fstab`にuuidを使ったマウント制御をしている場合している場合、
+  - 新規Diskにリストアするとuuidが変わってしまうため、マウントしなくなる
+  - grubも同じ
+
+### 対応方法
+
+- `fstab`を新しいuuidに変更する
+
+```bash
+sudo tune2fs -U <元のUUID> /dev/sdX2
+```
+
+- 新しいUUIDを元のものに書き換える。
+
+```bash
+sudo nano /etc/fstab
+```
+
+- リブートする
+
+```bash
+sudo reboot
+```
